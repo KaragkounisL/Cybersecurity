@@ -1,6 +1,5 @@
 #!/usr/bin/bash
 
-for ip in {1 .. 254} 
-do 
-    ping -c 1 l.l.l.$ip | grep "64 b" | cut -d " " -f 4 | tr -d ":" &
-done
+for ip in `seq 1 254`; do
+  ping -c 1 $1.$ip | grep "64 bytes" | cut -d " " -f 4 | tr -d ":" &
+done > ips.txt
